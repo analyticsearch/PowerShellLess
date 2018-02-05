@@ -1,0 +1,53 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<!-- C:\Windows\Microsoft.NET\Framework\v4.0.30319\msbuild.exe C:\MSPowerShellExecute.csproj -->
+<Target Name="MicrosoftDriver"><MicrosoftPS/></Target>
+<UsingTask TaskName="MicrosoftPS" TaskFactory="CodeTaskFactory" AssemblyFile="C:\Windows\Microsoft.Net\Framework\v4.0.30319\Microsoft.Build.Tasks.v4.0.dll">
+<Task><Reference Include="System.Management.Automation"/><Code Type="Class" Lang="cs">
+<![CDATA[
+using System.Collections.ObjectModel;
+using System.Management.Automation;
+using System.Management.Automation.Runspaces;
+using System.Runtime.InteropServices;
+using System.IO;
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+public class MicrosoftPS :  Task
+{
+  public override bool Execute()
+  {
+   string buffer = "";
+   try
+   {
+     buffer = File.ReadAllText("C:/OutputPIDVersion.ps1");
+   }
+   catch (Exception e)
+   {
+    Console.WriteLine("error:" +e.Message);
+    Environment.Exit(2);
+   }
+   buffer=RunScript(buffer);
+   Console.WriteLine(buffer);
+   return true;
+ }
+ private static string RunScript(string script)
+  {
+    Runspace MyRunspace = RunspaceFactory.CreateRunspace();
+    MyRunspace.Open();
+    Pipeline MyPipeline = MyRunspace.CreatePipeline();
+    MyPipeline.Commands.AddScript(script);
+    MyPipeline.Commands.Add("Out-String");
+    Collection<PSObject> outputs = MyPipeline.Invoke();
+    MyRunspace.Close();
+    StringBuilder sb = new StringBuilder();
+    foreach (PSObject pobject in outputs)
+    {
+      sb.AppendLine(pobject.ToString());
+    }
+    return sb.ToString();
+   }
+}
+]]>
+</Code></Task></UsingTask></Project>
